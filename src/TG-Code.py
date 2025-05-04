@@ -15,9 +15,9 @@ cwd = os.getcwd()
 root_dir = os.path.dirname(cwd)
 parent_root_dir = os.path.dirname(root_dir)
 yolo_dir = os.path.join(parent_root_dir, "yolo_v5", "yolov5")
-YOLO_WEIGHTS = os.path.join("models", "yolov5", "best.pt")
-TROCR_MODEL_DIR = os.path.join("models", "trocr", "trocr_model")
-TROCR_PROCESSOR_DIR = os.path.join("models", "trocr", "trocr_processor")
+YOLO_WEIGHTS = os.path.join(root_dir, "models", "yolov5", "best.pt")
+TROCR_MODEL_DIR = os.path.join(root_dir, "models", "trocr", "v3", "trocr_model")
+TROCR_PROCESSOR_DIR = os.path.join(root_dir, "models", "trocr", "v3", "trocr_processor")
 
 sys.path.append(yolo_dir)
 
@@ -65,7 +65,7 @@ def process_image_pipeline(image_pil):
             save_crop=False,
             project=project_dir,
             name='',
-            exist_ok=True
+            exist_ok=False
         )
 
         jpg_for_size = Image.open(original_path).convert("RGB")
