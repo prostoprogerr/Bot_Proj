@@ -5,10 +5,12 @@ import sys
 import torch
 import shutil
 import tempfile
+import requests
 import crop
+import language_tool_python
 from PIL import Image
 from transformers import TrOCRProcessor, VisionEncoderDecoderModel
-import language_tool_python
+
 
 cwd = os.getcwd()
 root_dir = os.path.dirname(cwd)
@@ -27,32 +29,69 @@ device = "cuda" if torch.cuda.is_available() else "cpu"
 processor = TrOCRProcessor.from_pretrained(processor_dir)
 model = VisionEncoderDecoderModel.from_pretrained(model_dir).to(device)
 
-
 def clear_directory(path):
     if os.path.exists(path):
         shutil.rmtree(path)
     os.makedirs(path)
+
 
 def clear(image_dir, bbox_dir, cropped_dir):
     clear_directory(image_dir)
     clear_directory(bbox_dir)
     clear_directory(cropped_dir)
 
+
 def convert_to_jpeg(image_pil, output_path):
     image_pil.convert("RGB").save(output_path, format="JPEG")
     return output_path
 
+
 def check_spelling(text):
-    tool = language_tool_python.LanguageTool('ru-RU')
-    matches = tool.check(text)
-    corrected_text = language_tool_python.utils.correct(text, matches)
+    try:
+        response = requests.get(
+            "https://speller.yandex.net/services/spellservice.json/checkText",
+            params={"text": text, "lang": "ru"}
+        )
+        results = response.json()
+        yandex_corrected = text
+        yandex_log = ""
 
-    error_log = ""
-    for match in matches:
-        error_log += f"• {match.message}\n  ⤷ {match.context.strip()}\n"
+        for item in reversed(results):
+            if item["s"]:
+                suggestion = item["s"][0]
+                start = item["pos"]
+                end = start + item["len"]
+                yandex_corrected = yandex_corrected[:start] + suggestion + yandex_corrected[end:]
+                yandex_log += f"• <code>{item['word']}</code> → <b>{suggestion}</b>\n"
 
-    tool.close()
-    return corrected_text, error_log
+    except Exception as e:
+        print(f"[ERROR] Yandex Speller error: {e}")
+        yandex_corrected = text
+        yandex_log = "⚠️ <i>Не удалось проверить орфографию через Яндекс.</i>\n"
+
+    try:
+        tool = language_tool_python.LanguageTool('ru-RU')
+        matches = tool.check(yandex_corrected)
+        final_text = language_tool_python.utils.correct(yandex_corrected, matches)
+
+        lt_log = ""
+        for match in matches:
+            context = match.context.replace('\n', ' ')
+            lt_log += f"• <b>{match.message}</b>\n  ⤷ <code>{context.strip()}</code>\n"
+
+        tool.close()
+    except Exception as e:
+        print(f"[ERROR] LanguageTool error: {e}")
+        final_text = yandex_corrected
+        lt_log = "⚠️ <i>Не удалось проверить грамматику через LanguageTool.</i>"
+
+    full_log = ""
+    if yandex_log.strip():
+        full_log += "<b>🧹 Орфография:</b>\n" + yandex_log + "\n"
+    if lt_log.strip():
+        full_log += "<b>🔍 Грамматика и стиль:</b>\n" + lt_log
+
+    return final_text.strip(), full_log.strip()
 
 
 def process_image_pipeline(image_pil):
@@ -134,20 +173,19 @@ def handle_text(message):
 @bot.message_handler(content_types=['photo'])
 def handle_photo(message):
     try:
-        bot.send_message(message.chat.id, "📤 Получено изображение. Загружаю...")
+        bot.send_message(message.chat.id, "📥 Получено изображение-документ. \n🧠 Распознаю текст...")
 
         file_info = bot.get_file(message.photo[-1].file_id)
         downloaded = bot.download_file(file_info.file_path)
         image = Image.open(io.BytesIO(downloaded)).convert("RGB")
 
-        bot.send_message(message.chat.id, "🧠 Запускаю нейросети для распознавания...")
         raw_text, corrected_text, errors = process_image_pipeline(image)
 
-        bot.send_message(message.chat.id, f"📝 *Распознанный текст:*\n`{raw_text}")
-        bot.send_message(message.chat.id, f"✅ *Исправленный текст:*\n`{corrected_text}")
+        bot.send_message(message.chat.id, f"📝 *Распознанный текст:*\n`{raw_text}", parse_mode="Markdown")
+        bot.send_message(message.chat.id, f"✅ *Исправленный текст:*\n`{corrected_text}", parse_mode="Markdown")
 
         if errors:
-            bot.send_message(message.chat.id, f"🔍 *Обнаружены ошибки:*\n{errors}")
+            bot.send_message(message.chat.id, f"🔍 *Обнаружены ошибки:*\n{errors}", parse_mode="HTML")
         else:
             bot.send_message(message.chat.id, "🎉 Ошибок не найдено!")
 
@@ -177,7 +215,7 @@ def handle_image_document(message):
         bot.send_message(message.chat.id, f"✅ *Исправленный текст:*\n{corrected_text}", parse_mode="Markdown")
 
         if errors:
-            bot.send_message(message.chat.id, f"🔍 *Обнаружены ошибки:*\n{errors}")
+            bot.send_message(message.chat.id, f"🔍 *Обнаружены ошибки:*\n{errors}", parse_mode="HTML")
         else:
             bot.send_message(message.chat.id, "🎉 Ошибок не найдено!")
 
