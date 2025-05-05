@@ -65,14 +65,17 @@ def calculate_average_height(pixel_coords):
 
 
 def sort_coords(pixel_coords):
-    """Сортирует bounding boxes слева-направо и сверху-вниз с учётом вертикального положения и сгруппированных строк"""
+    """Сортирует bounding boxes слева-направо и сверху-вниз с адаптивным порогом для разделения строк."""
+
+    if not pixel_coords:
+        return []
 
     average_height = calculate_average_height(pixel_coords)
-    y_threshold = average_height * 0.5
+
+    y_threshold = max(10, average_height * 0.6)
 
     bboxes_with_center = [(bbox, calculate_center(bbox)) for bbox in pixel_coords]
     bboxes_with_center.sort(key=lambda item: item[1][1])
-
     lines = []
     current_line = []
 
