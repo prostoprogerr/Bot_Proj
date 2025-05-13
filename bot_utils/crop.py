@@ -1,5 +1,5 @@
 from PIL import Image
-import os
+import os, logging
 
 def read_coords(coords_path):
     """"Читает сохраненный текстовый файл после yolo_detect и преобразует
@@ -14,18 +14,18 @@ def read_coords(coords_path):
                     try:
                         lst_coords.append([float(x) for x in line.strip().split()])
                     except ValueError:
-                        print(f"Ошибка: Некорректные данные в строке: {line.strip()}")
+                        logging.info(f"Ошибка: Некорректные данные в строке: {line.strip()}")
                         continue
 
                 return lst_coords
 
         except UnicodeDecodeError:
-            print(f"Ошибка: Файл не является текстовым или использует неподдерживаемую кодировку: {coords_path}")
+            logging.info(f"Ошибка: Файл не является текстовым или использует неподдерживаемую кодировку: {coords_path}")
         except Exception as e:
-            print(f"Ошибка при чтении файла: {e}")
+            logging.info(f"Ошибка при чтении файла: {e}")
 
     else:
-        print("Ошибка: файл не найден")
+        logging.info("Ошибка: файл не найден")
 
 
 def convert_to_pixel_coords(normalized_coords, image_width, image_height):
@@ -72,7 +72,7 @@ def sort_coords(pixel_coords):
 
     average_height = calculate_average_height(pixel_coords)
 
-    y_threshold = max(10, average_height * 0.6)
+    y_threshold = max(10, int(average_height * 0.6))
 
     bboxes_with_center = [(bbox, calculate_center(bbox)) for bbox in pixel_coords]
     bboxes_with_center.sort(key=lambda item: item[1][1])

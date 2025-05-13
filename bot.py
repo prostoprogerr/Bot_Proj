@@ -3,22 +3,29 @@ import os
 import io
 import sys
 import torch
-import shutil
 import tempfile
-import requests
-import crop
-import language_tool_python
+import logging
 from PIL import Image
 from transformers import TrOCRProcessor, VisionEncoderDecoderModel
+from bot_utils.check_spelling import check_spelling_and_grammar
+from bot_utils import crop
+from bot_utils.resize import resize_with_aspect_and_padding
 
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler('app.log'),
+        logging.StreamHandler()
+    ]
+)
 
-cwd = os.getcwd()
-root_dir = os.path.dirname(cwd)
+root_dir = os.getcwd()
 parent_root_dir = os.path.dirname(root_dir)
 yolo_dir = os.path.join(parent_root_dir, "yolo_v5", "yolov5")
 yolo_weights = os.path.join(root_dir, "models", "yolov5", "best.pt")
-model_dir = os.path.join(root_dir, "models", "trocr", "v3", "trocr_model")
-processor_dir = os.path.join(root_dir, "models", "trocr", "v3", "trocr_processor")
+model_dir = os.path.join(root_dir, "models", "trocr", "v3", "model")
+processor_dir = os.path.join(root_dir, "models", "trocr", "v3", "processor")
 
 sys.path.append(yolo_dir)
 
@@ -29,69 +36,9 @@ device = "cuda" if torch.cuda.is_available() else "cpu"
 processor = TrOCRProcessor.from_pretrained(processor_dir)
 model = VisionEncoderDecoderModel.from_pretrained(model_dir).to(device)
 
-def clear_directory(path):
-    if os.path.exists(path):
-        shutil.rmtree(path)
-    os.makedirs(path)
-
-
-def clear(image_dir, bbox_dir, cropped_dir):
-    clear_directory(image_dir)
-    clear_directory(bbox_dir)
-    clear_directory(cropped_dir)
-
-
 def convert_to_jpeg(image_pil, output_path):
     image_pil.convert("RGB").save(output_path, format="JPEG")
     return output_path
-
-
-def check_spelling(text):
-    try:
-        response = requests.get(
-            "https://speller.yandex.net/services/spellservice.json/checkText",
-            params={"text": text, "lang": "ru"}
-        )
-        results = response.json()
-        yandex_corrected = text
-        yandex_log = ""
-
-        for item in reversed(results):
-            if item["s"]:
-                suggestion = item["s"][0]
-                start = item["pos"]
-                end = start + item["len"]
-                yandex_corrected = yandex_corrected[:start] + suggestion + yandex_corrected[end:]
-                yandex_log += f"• <code>{item['word']}</code> → <b>{suggestion}</b>\n"
-
-    except Exception as e:
-        print(f"[ERROR] Yandex Speller error: {e}")
-        yandex_corrected = text
-        yandex_log = "⚠️ <i>Не удалось проверить орфографию через Яндекс.</i>\n"
-
-    try:
-        tool = language_tool_python.LanguageTool('ru-RU')
-        matches = tool.check(yandex_corrected)
-        final_text = language_tool_python.utils.correct(yandex_corrected, matches)
-
-        lt_log = ""
-        for match in matches:
-            context = match.context.replace('\n', ' ')
-            lt_log += f"• <b>{match.message}</b>\n  ⤷ <code>{context.strip()}</code>\n"
-
-        tool.close()
-    except Exception as e:
-        print(f"[ERROR] LanguageTool error: {e}")
-        final_text = yandex_corrected
-        lt_log = "⚠️ <i>Не удалось проверить грамматику через LanguageTool.</i>"
-
-    full_log = ""
-    if yandex_log.strip():
-        full_log += "<b>🧹 Орфография:</b>\n" + yandex_log + "\n"
-    if lt_log.strip():
-        full_log += "<b>🔍 Грамматика и стиль:</b>\n" + lt_log
-
-    return final_text.strip(), full_log.strip()
 
 
 def process_image_pipeline(image_pil):
@@ -134,7 +81,7 @@ def process_image_pipeline(image_pil):
         for i in range(len(sorted_coords)):
             cropped_path = os.path.join(cropped_dir, f"cropped_image{i + 1}.jpg")
             try:
-                img = Image.open(cropped_path).convert("RGB")
+                img = resize_with_aspect_and_padding(Image.open(cropped_path).convert("RGB"))
                 pixel_values = processor(images=img, return_tensors="pt").pixel_values.to(device)
                 generated_ids = model.generate(pixel_values)
                 text = processor.batch_decode(generated_ids, skip_special_tokens=True)[0]
@@ -142,7 +89,7 @@ def process_image_pipeline(image_pil):
             except Exception as e:
                 print(f"[ERROR] Ошибка при обработке {cropped_path}: {e}")
 
-        corrected_text, errors = check_spelling(recognized_text.strip())
+        corrected_text, errors = check_spelling_and_grammar(recognized_text.strip())
 
         return recognized_text.strip(), corrected_text.strip(), errors
 
