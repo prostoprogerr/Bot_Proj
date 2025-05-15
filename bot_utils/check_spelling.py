@@ -22,7 +22,7 @@ def check_yandex_spelling(text):
         return corrected_text, log
 
     except Exception as e:
-        logging.info(f"[ERROR] Yandex Speller error: {e}")
+        logging.error(f"[ERROR] Yandex Speller error: {e}")
         return text, "⚠️ <i>Не удалось проверить орфографию через Яндекс.</i>\n"
 
 
@@ -43,7 +43,7 @@ def check_grammar_tool(text):
         return corrected_text, log
 
     except Exception as e:
-        logging.info(f"[ERROR] LanguageTool error: {e}")
+        logging.error(f"[ERROR] LanguageTool error: {e}")
         return text, "⚠️ <i>Не удалось проверить грамматику через LanguageTool.</i>"
 
 def check_spelling_and_grammar(text):

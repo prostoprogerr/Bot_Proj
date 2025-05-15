@@ -14,18 +14,18 @@ def read_coords(coords_path):
                     try:
                         lst_coords.append([float(x) for x in line.strip().split()])
                     except ValueError:
-                        logging.info(f"Ошибка: Некорректные данные в строке: {line.strip()}")
+                        logging.error(f"Ошибка: Некорректные данные в строке: {line.strip()}")
                         continue
 
                 return lst_coords
 
         except UnicodeDecodeError:
-            logging.info(f"Ошибка: Файл не является текстовым или использует неподдерживаемую кодировку: {coords_path}")
+            logging.error(f"Ошибка: Файл не является текстовым или использует неподдерживаемую кодировку: {coords_path}")
         except Exception as e:
-            logging.info(f"Ошибка при чтении файла: {e}")
+            logging.error(f"Ошибка при чтении файла: {e}")
 
     else:
-        logging.info("Ошибка: файл не найден")
+        logging.error("Ошибка: файл не найден")
 
 
 def convert_to_pixel_coords(normalized_coords, image_width, image_height):

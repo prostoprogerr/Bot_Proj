@@ -2,6 +2,7 @@ import sys, os
 import torch
 import tempfile
 import subprocess
+import logging
 from PIL import Image
 from transformers import TrOCRProcessor, VisionEncoderDecoderModel
 from bot_utils.check_spelling import check_spelling_and_grammar
@@ -16,7 +17,6 @@ yolo_weights = os.path.join(root_dir, "models", "yolov5", "best.pt")
 model_dir = os.path.join(root_dir, "models", "trocr", "v3", "model")
 processor_dir = os.path.join(root_dir, "models", "trocr", "v3", "processor")
 
-
 device = "cuda" if torch.cuda.is_available() else "cpu"
 processor = TrOCRProcessor.from_pretrained(processor_dir)
 model = VisionEncoderDecoderModel.from_pretrained(model_dir).to(device)
@@ -28,7 +28,7 @@ def run_yolo_subprocess(image_path, output_dir, yolo_weights):
         python_executable, "detect.py",
         "--weights", yolo_weights,
         "--source", image_path,
-        "--conf", "0.7",
+        "--conf", "0.69",
         "--save-txt",
         "--save-conf",
         "--project", output_dir,
@@ -43,12 +43,12 @@ def run_yolo_subprocess(image_path, output_dir, yolo_weights):
             capture_output=True,
             text=True
         )
-        print("[YOLO STDOUT]:", result.stdout)
-        print("[YOLO STDERR]:", result.stderr)
+        logging.info("[YOLO STDOUT]: %s", result.stdout)
+        logging.debug("[YOLO STDERR]: %s", result.stderr)
     except subprocess.CalledProcessError as e:
-        print("[ERROR] YOLOv5 subprocess failed:")
-        print("STDOUT:", e.stdout)
-        print("STDERR:", e.stderr)
+        logging.error("[ERROR] YOLOv5 subprocess failed:")
+        logging.error("STDOUT: %s", e.stdout)
+        logging.error("STDERR: %s", e.stderr)
 
 def convert_to_jpeg(image_pil, output_path):
     image_pil.convert("RGB").save(output_path, format="JPEG")
@@ -74,7 +74,7 @@ def process_image_pipeline(image_pil):
 
         label_path = os.path.join(bbox_dir, "result", "labels", "input.txt")
         if not os.path.exists(label_path):
-            print(f"[ERROR] Файл меток не найден: {label_path}")
+            logging.error(f"[ERROR] Файл меток не найден: {label_path}")
             return "", "", "⚠️ Не удалось распознать текст: YOLO не нашёл текст на изображении."
 
         normalized_coords = crop.read_coords(label_path)
@@ -92,7 +92,7 @@ def process_image_pipeline(image_pil):
                 text = processor.batch_decode(generated_ids, skip_special_tokens=True)[0]
                 recognized_text += text + " "
             except Exception as e:
-                print(f"[ERROR] Ошибка при обработке {cropped_path}: {e}")
+                logging.error(f"[ERROR] Ошибка при обработке {cropped_path}: {e}")
 
         corrected_text, errors = check_spelling_and_grammar(recognized_text.strip())
 

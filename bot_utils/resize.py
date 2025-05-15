@@ -1,4 +1,5 @@
 def resize_with_aspect_and_padding(image, target_size=384, fill_color=(255, 255, 255)):
+    """Меняет размер изображения до таргетного, с сохранением соотношения сторон"""
     from PIL import Image
     original_width, original_height = image.size
     ratio = target_size / max(original_width, original_height)
