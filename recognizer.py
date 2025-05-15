@@ -65,9 +65,8 @@ def process_image_pipeline(image_pil):
             os.makedirs(path, exist_ok=True)
 
         image_path = os.path.join(image_dir, "input.jpg")
-        convert_to_jpeg(image_pil, image_path)
-
-        image = Image.open(image_path).convert("RGB")
+        image = image_pil.convert("RGB")
+        image.save(image_path, format="JPEG")
         width, height = image.size
 
         run_yolo_subprocess(image_path, bbox_dir, yolo_weights)
@@ -82,18 +81,22 @@ def process_image_pipeline(image_pil):
         sorted_coords = crop.sort_coords(pixel_coords)
         crop.crop_and_save_images(image_path, sorted_coords, cropped_dir)
 
-        recognized_text = ""
-        for i in range(len(sorted_coords)):
-            cropped_path = os.path.join(cropped_dir, f"cropped_image{i + 1}.jpg")
-            try:
-                img = resize_with_aspect_and_padding(Image.open(cropped_path).convert("RGB"))
-                pixel_values = processor(images=img, return_tensors="pt").pixel_values.to(device)
-                generated_ids = model.generate(pixel_values)
-                text = processor.batch_decode(generated_ids, skip_special_tokens=True)[0]
-                recognized_text += text + " "
-            except Exception as e:
-                logging.error(f"[ERROR] Ошибка при обработке {cropped_path}: {e}")
+        imgs = [
+            resize_with_aspect_and_padding(
+                Image.open(os.path.join(cropped_dir, f"cropped_image{i + 1}.jpg")).convert("RGB"))
+            for i in range(len(sorted_coords))
+        ]
 
+        pixel_values = processor(images=imgs, return_tensors="pt").pixel_values.to(device)
+        generated_ids = model.generate(
+            pixel_values,
+            max_length=256,
+            num_beams=1,
+            do_sample=False
+        )
+
+        texts = processor.batch_decode(generated_ids, skip_special_tokens=True)
+        recognized_text = " ".join(texts)
         corrected_text, errors = check_spelling_and_grammar(recognized_text.strip())
 
         return recognized_text.strip(), corrected_text.strip(), errors

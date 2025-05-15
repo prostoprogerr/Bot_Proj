@@ -1,6 +1,8 @@
 import telebot
 import io
 import logging
+import threading
+import time
 from recognizer import process_image_pipeline
 from PIL import Image
 from telebot.types import ReplyKeyboardMarkup, KeyboardButton
@@ -13,8 +15,12 @@ logging.basicConfig(
 
 bot = telebot.TeleBot('7654203891:AAFEb7yBUe5YqoP4ADJnl8Ipa7GzJlJjvt4')
 
-
 user_data = {}
+
+def show_typing(bot, chat_id, stop_event):
+    while not stop_event.is_set():
+        bot.send_chat_action(chat_id, action='typing')
+        time.sleep(1.5)
 
 def start_keyboard():
     markup = ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True)
@@ -103,9 +109,11 @@ def handle_text(message):
 
 @bot.message_handler(content_types=['photo'])
 def handle_photo(message):
-    try:
-        bot.send_message(message.chat.id, "📥 Получено изображение. \n🧠 Распознаю текст...")
+    stop_typing = threading.Event()
+    typing_thread = threading.Thread(target=show_typing, args=(bot, message.chat.id, stop_typing))
+    typing_thread.start()
 
+    try:
         file_info = bot.get_file(message.photo[-1].file_id)
         downloaded = bot.download_file(file_info.file_path)
         image = Image.open(io.BytesIO(downloaded)).convert("RGB")
@@ -118,26 +126,36 @@ def handle_photo(message):
             "errors": errors
         }
 
+        stop_typing.set()
+        typing_thread.join()
+
         bot.send_message(message.chat.id,
                          "✅ Изображение успешно обработано.\nЧто вы хотите сделать дальше?",
                          reply_markup=text_action_keyboard(),
                          parse_mode="Markdown")
 
     except Exception as e:
+        stop_typing.set()
+        typing_thread.join()
         bot.send_message(message.chat.id,
                          "❌ Произошла ошибка при обработке изображения. Попробуйте ещё раз.")
         logging.error(f"Ошибка: {e}")
 
+
 @bot.message_handler(content_types=['document'])
 def handle_image_document(message):
+    stop_typing = threading.Event()
+    typing_thread = threading.Thread(target=show_typing, args=(bot, message.chat.id, stop_typing))
+    typing_thread.start()
+
     try:
         file_name = message.document.file_name.lower()
         if not file_name.endswith((".jpg", ".jpeg", ".png")):
+            stop_typing.set()
+            typing_thread.join()
             bot.send_message(message.chat.id,
                              "⚠️ Пожалуйста, отправьте изображение (JPG, PNG).")
             return
-
-        bot.send_message(message.chat.id, "📥 Получено изображение-документ. \n🧠 Распознаю текст...")
 
         file_info = bot.get_file(message.document.file_id)
         downloaded = bot.download_file(file_info.file_path)
@@ -151,16 +169,22 @@ def handle_image_document(message):
             "errors": errors
         }
 
+        stop_typing.set()
+        typing_thread.join()
+
         bot.send_message(message.chat.id,
                          "✅ Документ успешно обработан.\nЧто вы хотите сделать дальше?",
                          reply_markup=text_action_keyboard(),
                          parse_mode="Markdown")
 
     except Exception as e:
+        stop_typing.set()
+        typing_thread.join()
         bot.send_message(message.chat.id,
                          "❌ Ошибка при обработке изображения-документа.")
         logging.error(f"[ERROR] Ошибка: {e}")
 
-logging.info("🚀 Бот запущен. Ожидаю изображения...")
+
+logging.info("Бот запущен. Ожидаю изображения...")
 bot.polling(none_stop=True)
 
