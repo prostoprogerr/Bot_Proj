@@ -1,3 +1,4 @@
-/models/
+/models/trocr/
+/models/yolov5/
 /.venv/
 app.log
