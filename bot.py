@@ -3,46 +3,108 @@ import io
 import logging
 from recognizer import process_image_pipeline
 from PIL import Image
+from telebot.types import ReplyKeyboardMarkup, KeyboardButton
 
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler('app.log'),
-        logging.StreamHandler()
-    ]
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    handlers=[logging.StreamHandler()]
 )
 
 bot = telebot.TeleBot('7654203891:AAFEb7yBUe5YqoP4ADJnl8Ipa7GzJlJjvt4')
 
 
+user_data = {}
+
+def start_keyboard():
+    markup = ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True)
+    start_button = KeyboardButton("Старт")
+    help_button = KeyboardButton("Помощь")
+    markup.add(start_button, help_button)
+    return markup
+
+def text_action_keyboard():
+    markup = ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True)
+    get_text = KeyboardButton("Получить распознанный текст")
+    get_corrected_text = KeyboardButton("Получить исправленный текст")
+    get_all = KeyboardButton("Получить все сразу")
+    markup.add(get_text)
+    markup.add(get_corrected_text)
+    markup.add(get_all)
+    return markup
+
 @bot.message_handler(content_types=['text'])
 def handle_text(message):
-    if message.text == "/start":
+    if message.text.lower() == "старт":
         bot.send_message(message.chat.id,
                          "👋 Привет! Я бот, который умеет распознавать *русский рукописный текст* с изображений.\n\n"
-                         "📸 Просто отправь мне фото, я извлеку текст, распознаю его и проверю орфографию!\n\n"
-                         "Для справки напиши /help.")
-    elif message.text == "/help":
+                         "📸 Просто отправь мне фото, я извлеку текст, распознаю его и проверю орфографию, грамматику и стиль.\n\n"
+                         "Для справки нажми *Помощь*.",
+                         reply_markup=start_keyboard(),
+                         parse_mode="Markdown")
+
+    elif message.text.lower() == "помощь":
         bot.send_message(message.chat.id,
                          "🆘 *Помощь по боту*\n\n"
                          "Вот что я умею:\n"
                          "1️⃣ Распознаю *рукописный текст* с изображений\n"
-                         "2️⃣ Проверяю *орфографию и грамматику*\n"
+                         "2️⃣ Проверяю *орфографию, грамматику и стиль написания*\n"
                          "3️⃣ Даю исправленный текст\n\n"
-                         "📌 *Советы:*\n"
+                         "📌 Советы:\n"
                          "— Делай чёткие фото\n"
                          "— Лучше загружай изображение-документ (без сжатия)\n"
-                         "📥 Просто отправь фото, и я начну работать!")
+                         "📥 Просто отправь фото, и я начну работать!",
+                         reply_markup=start_keyboard(),
+                         parse_mode="Markdown")
+
+    elif message.text == "Получить распознанный текст":
+        data = user_data.get(message.chat.id)
+        if data:
+            bot.send_message(message.chat.id,
+                             f"📝 *Распознанный текст:*\n```\n{data['raw_text']}\n```",
+                             parse_mode="Markdown")
+        else:
+            bot.send_message(message.chat.id, "❌ Нет данных. Сначала отправьте изображение.")
+
+    elif message.text == "Получить исправленный текст":
+        data = user_data.get(message.chat.id)
+        if data:
+            bot.send_message(message.chat.id,
+                             f"✅ *Исправленный текст:*\n```\n{data['corrected_text']}\n```",
+                             parse_mode="Markdown")
+        else:
+            bot.send_message(message.chat.id, "❌ Нет данных. Сначала отправьте изображение.")
+
+    elif message.text == "Получить все сразу":
+        data = user_data.get(message.chat.id)
+        if data:
+            bot.send_message(message.chat.id,
+                             f"📝 *Распознанный текст:*\n```\n{data['raw_text']}\n```",
+                             parse_mode="Markdown")
+            bot.send_message(message.chat.id,
+                             f"✅ *Исправленный текст:*\n```\n{data['corrected_text']}\n```",
+                             parse_mode="Markdown")
+            if data["errors"]:
+                bot.send_message(message.chat.id,
+                                 f"🔍 *Обнаружены ошибки:*\n{data['errors']}",
+                                 parse_mode="HTML")
+            else:
+                bot.send_message(message.chat.id,
+                                 "🎉 Ошибок не найдено!")
+        else:
+            bot.send_message(message.chat.id, "❌ Нет данных. Сначала отправьте изображение.")
+
     else:
         bot.send_message(message.chat.id,
-                         "🤔 Прости, я не понимаю тебя...\nНапиши /help, чтобы узнать, что я умею.")
+                         "🤔 Прости, я не понимаю тебя...\nНажми *Помощь*, чтобы узнать, что я умею.",
+                         reply_markup=start_keyboard(),
+                         parse_mode="Markdown")
 
 
 @bot.message_handler(content_types=['photo'])
 def handle_photo(message):
     try:
-        bot.send_message(message.chat.id, "📥 Получено изображение-документ. \n🧠 Распознаю текст...")
+        bot.send_message(message.chat.id, "📥 Получено изображение. \n🧠 Распознаю текст...")
 
         file_info = bot.get_file(message.photo[-1].file_id)
         downloaded = bot.download_file(file_info.file_path)
@@ -50,26 +112,29 @@ def handle_photo(message):
 
         raw_text, corrected_text, errors = process_image_pipeline(image)
 
-        bot.send_message(message.chat.id, f"📝 *Распознанный текст:*\n`{raw_text}", parse_mode="Markdown")
-        bot.send_message(message.chat.id, f"✅ *Исправленный текст:*\n`{corrected_text}", parse_mode="Markdown")
+        user_data[message.chat.id] = {
+            "raw_text": raw_text,
+            "corrected_text": corrected_text,
+            "errors": errors
+        }
 
-        if errors:
-            bot.send_message(message.chat.id, f"🔍 *Обнаружены ошибки:*\n{errors}", parse_mode="HTML")
-        else:
-            bot.send_message(message.chat.id, "🎉 Ошибок не найдено!")
+        bot.send_message(message.chat.id,
+                         "✅ Изображение успешно обработано.\nЧто вы хотите сделать дальше?",
+                         reply_markup=text_action_keyboard(),
+                         parse_mode="Markdown")
 
     except Exception as e:
-        bot.send_message(message.chat.id, "❌ Произошла ошибка при обработке изображения. Попробуйте ещё раз.")
-        print(f"Ошибка: {e}")
+        bot.send_message(message.chat.id,
+                         "❌ Произошла ошибка при обработке изображения. Попробуйте ещё раз.")
+        logging.error(f"Ошибка: {e}")
 
 @bot.message_handler(content_types=['document'])
 def handle_image_document(message):
     try:
         file_name = message.document.file_name.lower()
-        image_extensions = (".jpg", ".jpeg", ".png", ".bmp", ".tiff", ".webp")
-
-        if not file_name.endswith(image_extensions):
-            bot.send_message(message.chat.id, "⚠️ Пожалуйста, отправьте изображение (JPG, PNG и т.д.), а не другой тип файла.")
+        if not file_name.endswith((".jpg", ".jpeg", ".png")):
+            bot.send_message(message.chat.id,
+                             "⚠️ Пожалуйста, отправьте изображение (JPG, PNG).")
             return
 
         bot.send_message(message.chat.id, "📥 Получено изображение-документ. \n🧠 Распознаю текст...")
@@ -80,18 +145,22 @@ def handle_image_document(message):
 
         raw_text, corrected_text, errors = process_image_pipeline(image)
 
-        bot.send_message(message.chat.id, f"📝 *Распознанный текст:*\n{raw_text}", parse_mode="Markdown")
-        bot.send_message(message.chat.id, f"✅ *Исправленный текст:*\n{corrected_text}", parse_mode="Markdown")
+        user_data[message.chat.id] = {
+            "raw_text": raw_text,
+            "corrected_text": corrected_text,
+            "errors": errors
+        }
 
-        if errors:
-            bot.send_message(message.chat.id, f"🔍 *Обнаружены ошибки:*\n{errors}", parse_mode="HTML")
-        else:
-            bot.send_message(message.chat.id, "🎉 Ошибок не найдено!")
+        bot.send_message(message.chat.id,
+                         "✅ Документ успешно обработан.\nЧто вы хотите сделать дальше?",
+                         reply_markup=text_action_keyboard(),
+                         parse_mode="Markdown")
 
     except Exception as e:
-        bot.send_message(message.chat.id, "❌ Произошла ошибка при обработке изображения-документа.")
-        print(f"[ERROR] Ошибка с изображением-документом: {e}")
+        bot.send_message(message.chat.id,
+                         "❌ Ошибка при обработке изображения-документа.")
+        logging.error(f"[ERROR] Ошибка: {e}")
 
-
-print("🚀 Бот запущен. Ожидаю изображения...")
+logging.info("🚀 Бот запущен. Ожидаю изображения...")
 bot.polling(none_stop=True)
+
