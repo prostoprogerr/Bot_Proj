@@ -14,10 +14,10 @@
 ├── LICENSE                         # Лицензия проекта
 ├── README.md                       # Документация проекта
 ├── models/                         # Папка с весами моделей
-│   ├── yolov5/                     # Весы для YOLOv5 (best.pt)
+│   ├── yolov5/                     # Веса для YOLOv5 (best.pt)
 │   └── trocr/
 │       └── v3/
-│           ├── model/              # Весы TrOCR (pytorch_model.bin, config.json и др.)
+│           ├── model/              # Веса TrOCR (pytorch_model.bin, config.json и др.)
 │           └── processor/          # Tokenizer и Feature Extractor
 ├── bot_utils/                      # Вспомогательные модули
 │   ├── __init__.py                 # Инициализация пакета
@@ -31,7 +31,7 @@
 
 - [YOLOv5](https://huggingface.co/Ultralytics/YOLOv5) — модель обнаружения объектов (вызов через `subprocess`). Лицензия: **GPLv3**
 - [TrOCR (base-handwritten)](https://huggingface.co/microsoft/trocr-base-handwritten) — модель от Microsoft для распознавания рукописного текста. Лицензия: **MIT**
-- [Pillow](https://python-pillow.org/) — для обработки изображений
+- [Pillow](https://pillow.readthedocs.io/en/stable/index.html) — для обработки изображений
 - [Transformers](https://huggingface.co/docs/transformers/index) — для загрузки TrOCR
 - [Yandex Speller API](https://yandex.ru/dev/speller/) — проверка орфографии
 - [LanguageTool](https://languagetool.org/) — проверка грамматики
