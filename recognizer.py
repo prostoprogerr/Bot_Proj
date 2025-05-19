@@ -5,7 +5,7 @@ import subprocess
 import logging
 from PIL import Image
 from transformers import TrOCRProcessor, VisionEncoderDecoderModel
-from bot_utils.check_spelling import check_spelling_and_grammar
+from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
 from bot_utils import crop
 from bot_utils.resize import resize_with_aspect_and_padding
 
@@ -20,6 +20,51 @@ processor_dir = os.path.join(root_dir, "models", "trocr", "v3", "processor")
 device = "cuda" if torch.cuda.is_available() else "cpu"
 processor = TrOCRProcessor.from_pretrained(processor_dir)
 model = VisionEncoderDecoderModel.from_pretrained(model_dir).to(device)
+
+
+
+model_name = "IlyaGusev/saiga_llama3_8b"
+
+bnb_config = BitsAndBytesConfig(
+    load_in_4bit=True,
+    bnb_4bit_use_double_quant=True,
+    bnb_4bit_quant_type="nf4",
+    bnb_4bit_compute_dtype=torch.float16
+)
+
+tokenizer_llm = AutoTokenizer.from_pretrained(model_name, use_fast=False)
+
+model_llm = AutoModelForCausalLM.from_pretrained(
+    model_name,
+    quantization_config=bnb_config,
+    device_map="auto",
+    torch_dtype=torch.float16
+)
+
+def correct_text_fast(model, tokenizer, text):
+    prompt = f"""Исправь ошибки в тексте и верни только исправленную версию. Не добавляй никаких дополнительных слов,
+     фраз или комментариев. ТОЛЬКО исправленная версия:
+
+Оригинал: {text}
+Исправленный текст:"""
+
+    inputs = tokenizer(prompt, return_tensors="pt", truncation=True, max_length=4096).to(model.device)
+
+    outputs = model.generate(
+        **inputs,
+        max_new_tokens=512,  # Увеличено с 100 до 512, можно адаптировать
+        do_sample=False,     # Отключаем случайность
+        repetition_penalty=1.1,
+        temperature=0.7,
+        eos_token_id=tokenizer.eos_token_id
+    )
+
+    # Очищаем результат от промпта
+    output_text = tokenizer.decode(outputs[0], skip_special_tokens=True)
+    corrected = output_text.split("Исправленный текст:")[-1].strip()
+
+    return corrected
+
 
 def run_yolo_subprocess(image_path, output_dir, yolo_weights):
     python_executable = sys.executable
@@ -97,6 +142,7 @@ def process_image_pipeline(image_pil):
 
         texts = processor.batch_decode(generated_ids, skip_special_tokens=True)
         recognized_text = " ".join(texts)
-        corrected_text, errors = check_spelling_and_grammar(recognized_text.strip())
 
-        return recognized_text.strip(), corrected_text.strip(), errors
+        corrected_text = correct_text_fast(model_llm, tokenizer_llm, recognized_text)
+
+        return recognized_text.strip(), corrected_text.strip(), 'errors'
