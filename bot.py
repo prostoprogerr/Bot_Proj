@@ -1,8 +1,8 @@
-import telebot
 import io
 import logging
 import threading
 import time
+from token import bot
 from recognizer import process_image_pipeline
 from PIL import Image
 from telebot.types import ReplyKeyboardMarkup, KeyboardButton
@@ -12,8 +12,6 @@ logging.basicConfig(
     format='%(asctime)s - %(levelname)s - %(message)s',
     handlers=[logging.StreamHandler()]
 )
-
-bot = telebot.TeleBot('7654203891:AAFEb7yBUe5YqoP4ADJnl8Ipa7GzJlJjvt4')
 
 user_data = {}
 
