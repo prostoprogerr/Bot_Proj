@@ -2,7 +2,9 @@ import io
 import logging
 import threading
 import time
-from token import bot
+import os
+import telebot
+from dotenv import load_dotenv
 from recognizer import process_image_pipeline
 from PIL import Image
 from telebot.types import ReplyKeyboardMarkup, KeyboardButton
@@ -14,6 +16,10 @@ logging.basicConfig(
 )
 
 user_data = {}
+
+load_dotenv()
+
+bot = telebot.TeleBot(os.getenv('bot'))
 
 def show_typing(bot, chat_id, stop_event):
     while not stop_event.is_set():

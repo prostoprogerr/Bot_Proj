@@ -1,4 +1,4 @@
 /models/trocr/
 /models/yolov5/
 /.venv/
-token.py
+.env
