@@ -3,6 +3,7 @@ import torch
 import tempfile
 import subprocess
 import logging
+import re
 from PIL import Image
 from transformers import TrOCRProcessor, VisionEncoderDecoderModel
 from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
@@ -20,7 +21,6 @@ processor_dir = os.path.join(root_dir, "models", "trocr", "v3", "processor")
 device = "cuda" if torch.cuda.is_available() else "cpu"
 processor = TrOCRProcessor.from_pretrained(processor_dir)
 model = VisionEncoderDecoderModel.from_pretrained(model_dir).to(device)
-
 
 
 model_name = "IlyaGusev/saiga_llama3_8b"
@@ -41,29 +41,57 @@ model_llm = AutoModelForCausalLM.from_pretrained(
     torch_dtype=torch.float16
 )
 
-def correct_text_fast(model, tokenizer, text):
-    prompt = f"""Исправь ошибки в тексте и верни только исправленную версию. Не добавляй никаких дополнительных слов,
-     фраз или комментариев. ТОЛЬКО исправленная версия:
 
-Оригинал: {text}
+def split_into_sentences(text):
+    sentence_endings = r'(?<=[.!?…])\s+(?=[А-ЯЁ])'
+    sentences = re.split(sentence_endings, text.strip())
+    return [s.strip() for s in sentences if s.strip()]
+
+def correct_large_text_with_llm(model, tokenizer, full_text, max_total_tokens=4096, max_response_ratio=0.6):
+    sentences = split_into_sentences(full_text)
+    corrected_sentences = []
+
+    for sent in sentences:
+        prompt = f"""Исправь орфографические и грамматические ошибки в тексте. Верни только исправленную версию,
+         без добавления новых слов, комментариев, пояснений, ссылок или временных отметок.
+
+Оригинал: {sent}
 Исправленный текст:"""
 
-    inputs = tokenizer(prompt, return_tensors="pt", truncation=True, max_length=4096).to(model.device)
+        # Токенизация без генерации, чтобы оценить длину
+        input_ids = tokenizer.encode(prompt, return_tensors="pt").to(model.device)
+        input_len = input_ids.shape[1]
 
-    outputs = model.generate(
-        **inputs,
-        max_new_tokens=512,  # Увеличено с 100 до 512, можно адаптировать
-        do_sample=False,     # Отключаем случайность
-        repetition_penalty=1.1,
-        temperature=0.7,
-        eos_token_id=tokenizer.eos_token_id
-    )
+        # Оставляем запас для генерации
+        available_tokens = max_total_tokens - input_len
+        max_new_tokens = min(int(input_len * max_response_ratio), available_tokens)
+        if max_new_tokens <= 0:
+            logging.warning(f"[WARNING] Недостаточно места для генерации по предложению: {sent}")
+            max_new_tokens = 32  # fallback
 
-    # Очищаем результат от промпта
-    output_text = tokenizer.decode(outputs[0], skip_special_tokens=True)
-    corrected = output_text.split("Исправленный текст:")[-1].strip()
+        # Генерация
+        outputs = model.generate(
+            input_ids=input_ids,
+            max_new_tokens=max_new_tokens,
+            do_sample=False,
+            temperature=0.5,
+            repetition_penalty=1.1,
+            eos_token_id=tokenizer.eos_token_id,
+            pad_token_id=tokenizer.pad_token_id,
+        )
 
-    return corrected
+        output_text = tokenizer.decode(outputs[0], skip_special_tokens=True)
+        corrected = output_text.split("Исправленный текст:")[-1].strip()
+        corrected = corrected.split("\n")[0].strip()
+
+        # Удаляем шаблонные фразы
+        ban_phrases = ["это правильный ответ", "именно поэтому", "начните", "в заключение"]
+        if any(bad in corrected.lower() for bad in ban_phrases):
+            corrected = corrected.split(".")[0].strip() + "."
+
+        corrected_sentences.append(corrected)
+
+    return " ".join(corrected_sentences)
 
 
 def run_yolo_subprocess(image_path, output_dir, yolo_weights):
@@ -141,8 +169,8 @@ def process_image_pipeline(image_pil):
         )
 
         texts = processor.batch_decode(generated_ids, skip_special_tokens=True)
-        recognized_text = " ".join(texts)
+        recognized_text = " ".join(texts).strip()
 
-        corrected_text = correct_text_fast(model_llm, tokenizer_llm, recognized_text)
+        corrected_text = correct_large_text_with_llm(model_llm, tokenizer_llm, recognized_text)
 
-        return recognized_text.strip(), corrected_text.strip(), 'errors'
+        return recognized_text, corrected_text, 'ok'
