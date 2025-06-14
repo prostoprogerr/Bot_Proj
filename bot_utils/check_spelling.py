@@ -53,8 +53,8 @@ def check_spelling_and_grammar(text):
 
     full_log = ""
     if yandex_log.strip():
-        full_log += "<b>🧹 Орфография:</b>\n" + yandex_log + "\n"
+        full_log +=  yandex_log + "\n"
     if lt_log.strip():
-        full_log += "<b>🔍 Грамматика и стиль:</b>\n" + lt_log
+        full_log += lt_log
 
     return final_text.strip(), full_log.strip()
