@@ -1,11 +1,11 @@
 import io
 import logging
 import threading
+import requests
 import time
 import os
 import telebot
 from dotenv import load_dotenv
-from recognizer import process_image_pipeline
 from PIL import Image
 from telebot.types import ReplyKeyboardMarkup, KeyboardButton
 
@@ -20,6 +20,20 @@ user_data = {}
 load_dotenv()
 
 bot = telebot.TeleBot(os.getenv('bot'))
+
+def send_image_to_pipeline(image: Image.Image):
+    with io.BytesIO() as output:
+        image.save(output, format="JPEG")
+        output.seek(0)
+        files = {"file": ("image.jpg", output, "image/jpeg")}
+        try:
+            response = requests.post("http://localhost:8000/process/", files=files)
+            response.raise_for_status()
+            data = response.json()
+            return data["recognized_text"], data["corrected_text"], data["errors"]
+        except requests.RequestException as e:
+            logging.error(f"[ERROR] Ошибка запроса к микросервису: {e}")
+            raise
 
 def show_typing(bot, chat_id, stop_event):
     while not stop_event.is_set():
@@ -122,7 +136,7 @@ def handle_photo(message):
         downloaded = bot.download_file(file_info.file_path)
         image = Image.open(io.BytesIO(downloaded)).convert("RGB")
 
-        raw_text, corrected_text, errors = process_image_pipeline(image)
+        raw_text, corrected_text, errors = send_image_to_pipeline(image)
 
         user_data[message.chat.id] = {
             "raw_text": raw_text,
@@ -165,7 +179,7 @@ def handle_image_document(message):
         downloaded = bot.download_file(file_info.file_path)
         image = Image.open(io.BytesIO(downloaded)).convert("RGB")
 
-        raw_text, corrected_text, errors = process_image_pipeline(image)
+        raw_text, corrected_text, errors = send_image_to_pipeline(image)
 
         user_data[message.chat.id] = {
             "raw_text": raw_text,
