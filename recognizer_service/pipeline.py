@@ -9,7 +9,6 @@ from bot_utils.check_spelling import check_spelling_and_grammar
 from bot_utils import crop
 from bot_utils.resize import resize_with_aspect_and_padding
 
-
 root_dir = os.getcwd()
 parent_root_dir = os.path.dirname(root_dir)
 yolo_dir = os.path.join(parent_root_dir, "yolo_v5", "yolov5")
