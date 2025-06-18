@@ -4,6 +4,7 @@ import threading
 import requests
 import time
 import os
+import re
 import telebot
 from dotenv import load_dotenv
 from PIL import Image
@@ -16,10 +17,52 @@ logging.basicConfig(
 )
 
 user_data = {}
+user_request_times = {}
+blacklist = set()
+rate_limit = 5
 
 load_dotenv()
-
 bot = telebot.TeleBot(os.getenv('bot'))
+
+def is_sql_injection(text):
+    """Проверка на SQL-инъекции"""
+    sql_keywords = [
+        'select', 'insert', 'update', 'delete', 'drop',
+        'truncate', 'union', '--', ';', '/*', '*/'
+    ]
+    pattern = re.compile('|'.join(re.escape(keyword) for keyword in sql_keywords), re.IGNORECASE)
+    return bool(pattern.search(text))
+
+def is_blacklisted(user_id):
+    """Проверка на наличие в черном списке"""
+    return user_id in blacklist
+
+def check_rate_limit(user_id):
+    """Проверка ограничения запросов"""
+    current_time = time.time()
+    if user_id not in user_request_times:
+        user_request_times[user_id] = []
+
+    user_request_times[user_id] = [
+        t for t in user_request_times[user_id]
+        if current_time - t < 60
+    ]
+
+    if len(user_request_times[user_id]) >= rate_limit:
+        blacklist.add(user_id)
+        logging.warning(f"User {user_id} добавлен в черный список за превышение лимита запросов")
+        return False
+
+    user_request_times[user_id].append(current_time)
+    return True
+
+
+def sanitize_input(text):
+    """Очистка входных данных"""
+    if not text:
+        return text
+    return re.sub(r'[;\'"\\/*]', '', text)
+
 
 def send_image_to_pipeline(image: Image.Image):
     with io.BytesIO() as output:
@@ -35,10 +78,12 @@ def send_image_to_pipeline(image: Image.Image):
             logging.error(f"[ERROR] Ошибка запроса к микросервису: {e}")
             raise
 
+
 def show_typing(bot, chat_id, stop_event):
     while not stop_event.is_set():
         bot.send_chat_action(chat_id, action='typing')
         time.sleep(1.5)
+
 
 def start_keyboard():
     markup = ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True)
@@ -46,6 +91,7 @@ def start_keyboard():
     help_button = KeyboardButton("Помощь")
     markup.add(start_button, help_button)
     return markup
+
 
 def text_action_keyboard():
     markup = ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True)
@@ -57,8 +103,24 @@ def text_action_keyboard():
     markup.add(get_all)
     return markup
 
+
+@bot.message_handler(func=lambda message: is_blacklisted(message.from_user.id))
+def handle_blacklisted(message):
+    bot.send_message(message.chat.id, "⛔️ Вы заблокированы за превышение лимита запросов.")
+    logging.warning(f"Заблокированный пользователь {message.from_user.id} попытался отправить сообщение")
+
+
 @bot.message_handler(content_types=['text'])
 def handle_text(message):
+    if not check_rate_limit(message.from_user.id):
+        return
+
+    sanitized_text = sanitize_input(message.text)
+    if is_sql_injection(message.text):
+        logging.warning(f"Обнаружена попытка SQL-инъекции от пользователя {message.from_user.id}")
+        bot.send_message(message.chat.id, "⚠️ Обнаружена недопустимая команда.")
+        return
+
     if message.text.lower() == "старт":
         bot.send_message(message.chat.id,
                          "👋 Привет! Я бот, который умеет распознавать *русский рукописный текст* с изображений.\n\n"
@@ -113,8 +175,7 @@ def handle_text(message):
                                  f"🔍 *Обнаружены ошибки:*\n{data['errors']}",
                                  parse_mode="HTML")
             else:
-                bot.send_message(message.chat.id,
-                                 "🎉 Ошибок не найдено!")
+                bot.send_message(message.chat.id, "🎉 Ошибок не найдено!")
         else:
             bot.send_message(message.chat.id, "❌ Нет данных. Сначала отправьте изображение.")
 
@@ -124,13 +185,14 @@ def handle_text(message):
                          reply_markup=start_keyboard(),
                          parse_mode="Markdown")
 
-
 @bot.message_handler(content_types=['photo'])
 def handle_photo(message):
+    if not check_rate_limit(message.from_user.id):
+        return
+
     stop_typing = threading.Event()
     typing_thread = threading.Thread(target=show_typing, args=(bot, message.chat.id, stop_typing))
     typing_thread.start()
-
     try:
         file_info = bot.get_file(message.photo[-1].file_id)
         downloaded = bot.download_file(file_info.file_path)
@@ -159,9 +221,11 @@ def handle_photo(message):
                          "❌ Произошла ошибка при обработке изображения. Попробуйте ещё раз.")
         logging.error(f"Ошибка: {e}")
 
-
 @bot.message_handler(content_types=['document'])
 def handle_image_document(message):
+    if not check_rate_limit(message.from_user.id):
+        return
+
     stop_typing = threading.Event()
     typing_thread = threading.Thread(target=show_typing, args=(bot, message.chat.id, stop_typing))
     typing_thread.start()
@@ -202,7 +266,5 @@ def handle_image_document(message):
                          "❌ Ошибка при обработке изображения-документа.")
         logging.error(f"[ERROR] Ошибка: {e}")
 
-
 logging.info("Бот запущен. Ожидаю изображения...")
 bot.polling(none_stop=True)
-
