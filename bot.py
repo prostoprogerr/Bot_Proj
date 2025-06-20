@@ -45,7 +45,7 @@ def check_rate_limit(user_id):
 
     user_request_times[user_id] = [
         t for t in user_request_times[user_id]
-        if current_time - t < 60
+        if current_time - t < 5
     ]
 
     if len(user_request_times[user_id]) >= rate_limit:
